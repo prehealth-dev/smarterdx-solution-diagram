@@ -278,20 +278,23 @@ function makeGL(canvas) {
   const aCircle = new Float32Array(nVerts);
   const aPhase = new Float32Array(nVerts);
   const aColor = new Float32Array(nVerts * 3);
+  const aHot = new Float32Array(nVerts * 3);   // theme highlight, blended in on hover
   const idx = [];
 
   const colorOf = (i) => new THREE.Color(THEMES[SOLUTIONS[i].theme].accent);
+  const hotOf = (i) => new THREE.Color(THEMES[SOLUTIONS[i].theme].hot);
 
   let v = 0;
   for (let c = 0; c < N_CURVES; c++) {
     const ci = Math.floor(c / N_ENTRIES);
-    const col = colorOf(ci);
+    const col = colorOf(ci), hot = hotOf(ci);
     const phase = (c * 0.618) % 1;
     for (let s = 0; s <= SEGS; s++) {
       const t = s / SEGS;
       for (let k = 0; k < 2; k++) {
         aT[v] = t; aCircle[v] = ci; aPhase[v] = phase;
         aColor.set([col.r, col.g, col.b], v * 3);
+        aHot.set([hot.r, hot.g, hot.b], v * 3);
         v++;
       }
     }
@@ -308,6 +311,7 @@ function makeGL(canvas) {
   geo.setAttribute('aCircle', new THREE.BufferAttribute(aCircle, 1));
   geo.setAttribute('aPhase', new THREE.BufferAttribute(aPhase, 1));
   geo.setAttribute('aColor', new THREE.BufferAttribute(aColor, 3));
+  geo.setAttribute('aHot', new THREE.BufferAttribute(aHot, 3));
   geo.setIndex(idx);
 
   const uniforms = {
@@ -322,7 +326,8 @@ function makeGL(canvas) {
     transparent: true, depthWrite: false, side: THREE.DoubleSide,
     uniforms,
     vertexShader: `
-      attribute float aT; attribute float aCircle; attribute float aPhase; attribute vec3 aColor;
+      attribute float aT; attribute float aCircle; attribute float aPhase;
+      attribute vec3 aColor; attribute vec3 aHot;
       uniform float uProg[${N_CIRCLES}]; uniform float uTime, uPulse, uFocus, uFocusAmt;
       varying vec3 vC; varying float vA; varying float vG;
       void main(){
@@ -330,13 +335,17 @@ function makeGL(canvas) {
         float reveal = 1.0 - smoothstep(prog - 0.04, prog, aT);
         float tip = exp(-pow((aT - prog) * 55.0, 2.0)) * step(0.001, prog) * (1.0 - step(0.995, prog));
         float focused = 1.0 - step(0.5, abs(aCircle - uFocus));
+        float lit = focused * uFocusAmt;
+        // 0.3 keeps non-hovered lines at 30% of normal — relative, so the
+        // brighter base below doesn't erode the hover contrast.
         float dimf = mix(1.0, mix(0.3, 1.8, focused), uFocusAmt);
         float head = fract(uTime * 0.21 + aPhase);
         float g = exp(-pow((aT - head) * 15.0, 2.0)) * step(head - 0.06, prog);
         float dimg = mix(1.0, mix(0.3, 1.7, focused), uFocusAmt);
         vG = (g * uPulse * 0.9 + tip * 2.2) * reveal * dimg;
-        vA = (0.40 + 0.30 * g * uPulse) * reveal * dimf;
-        vC = aColor;
+        vA = (0.62 + 0.26 * g * uPulse) * reveal * dimf;
+        // shift the hovered circle's lines to its highlight colour so they pop
+        vC = mix(aColor, aHot, lit) * (1.0 + 0.10 * lit);
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }`,
     fragmentShader: `
