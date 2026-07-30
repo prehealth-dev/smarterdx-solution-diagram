@@ -45,6 +45,11 @@ const ROW_Y = 22;              // circles top (headroom for pop + glow)
 const LINES_TOP = ROW_Y + CIRCLE_D;
 const BOX_TOP = LINES_TOP + 279;   // 279 = Figma "Artword" lines height
 const BOX_H = 200;
+// The Clinical AI box renders at 90%. Applied as a transform scaled about its
+// TOP-centre, so the top edge stays on BOX_TOP and the line targets only need
+// compressing horizontally toward the centre (see entriesX).
+const BOX_SCALE = 0.9;
+const CENTER_X = PAD_X + INNER_W / 2;
 
 const N_CIRCLES = 7;
 const N_ENTRIES = 5;
@@ -54,7 +59,10 @@ const LINE_HW = 0.85;          // ribbon half width in stage px
 
 const STEP = (INNER_W - CIRCLE_D) / (N_CIRCLES - 1);
 const centersX = Array.from({ length: N_CIRCLES }, (_, i) => PAD_X + CIRCLE_R + i * STEP);
-const entriesX = Array.from({ length: N_ENTRIES }, (_, j) => PAD_X + INNER_W * (0.125 + j * 0.1875));
+const entriesX = Array.from({ length: N_ENTRIES }, (_, j) => {
+  const x = PAD_X + INNER_W * (0.125 + j * 0.1875);
+  return CENTER_X + (x - CENTER_X) * BOX_SCALE;   // follow the scaled box
+});
 
 /* ----------------------------------------------------------------- data */
 
@@ -139,6 +147,7 @@ const CSS = `
 .sdxg-nodes .sdxg-node.is-open{filter:brightness(1.25)}
 
 .sdxg-box{position:absolute;left:${PAD_X}px;top:${BOX_TOP}px;width:${INNER_W}px;height:${BOX_H}px;z-index:3;
+  transform:scale(${BOX_SCALE});transform-origin:50% 0;
   border-radius:21.6px;padding:21.6px;display:flex;flex-direction:column;gap:14px;align-items:center;
   background:linear-gradient(90deg,rgba(2,87,255,.25) 0%,rgba(0,200,226,.25) 38.25%,rgba(103,74,249,.25) 100%);
   border-bottom:1.8px solid #67c9ff}
@@ -147,8 +156,11 @@ const CSS = `
   display:flex;flex-direction:column;gap:14.4px;align-items:flex-start;justify-content:center;
   background:linear-gradient(156deg,#d5faff 14.6%,#e0ebff 85.4%);
   box-shadow:0 3.6px 0 0 rgba(0,0,0,.15)}
-.sdxg-card::after{content:'';position:absolute;inset:0;pointer-events:none;
-  background:linear-gradient(115deg,transparent 42%,rgba(255,255,255,.55) 50%,transparent 58%)}
+/* Shine band — an element, not ::after, so the hover sweep can be animated.
+   Wider than the card so it can travel; stops tightened to keep the stripe
+   the same apparent width as the original inset:0 gradient. */
+.sdxg-card .wave{position:absolute;top:0;left:-60%;width:220%;height:100%;pointer-events:none;
+  background:linear-gradient(115deg,transparent 47%,rgba(255,255,255,.55) 50%,transparent 53%)}
 .sdxg-card img{width:25.2px;height:25.2px;display:block}
 .sdxg-card p{font-family:'Mona Sans','Manrope',sans-serif;font-weight:500;font-size:18.9px;line-height:1.02;color:#051137}
 .sdxg-stat{display:flex;align-items:center;gap:21.6px;width:calc(100% - 43.2px);flex:none}
@@ -162,8 +174,11 @@ const CSS = `
 .sdxg-stroke{position:absolute;left:-6px;top:-6px;width:calc(100% + 12px);height:calc(100% + 12px);
   overflow:visible;pointer-events:none;z-index:5}
 .sdxg-pixels{position:absolute;left:${PAD_X - 8}px;top:${BOX_TOP - 8}px;width:${INNER_W + 16}px;height:${BOX_H + 16}px;
-  z-index:6;pointer-events:none}
-@media (prefers-reduced-motion:reduce){.sdxg-card::after{display:none}}
+  z-index:6;pointer-events:none;
+  /* scaled about the same stage point as .sdxg-box so the build flicker stays
+     registered to the box edges */
+  transform:scale(${BOX_SCALE});transform-origin:${CENTER_X - (PAD_X - 8)}px 8px}
+@media (prefers-reduced-motion:reduce){.sdxg-card .wave{display:none}}
 `;
 
 /* ------------------------------------------------------------------ dom */
@@ -202,7 +217,7 @@ function buildDOM(mount) {
   }).join('');
 
   const cardsHTML = CARDS.map((c) =>
-    `<div class="sdxg-card"><img src="${ASSETS[c.icon]}" alt=""><p>${c.title}</p></div>`).join('');
+    `<div class="sdxg-card"><span class="wave"></span><img src="${ASSETS[c.icon]}" alt=""><p>${c.title}</p></div>`).join('');
 
   mount.innerHTML = `<div class="sdxg-ratio"></div>
   <div class="sdxg-stage">
@@ -594,30 +609,30 @@ function init(mount) {
 
   function setFocus(i) {
     if (i === focusIdx) return;
-    const apply = () => {
-      focusIdx = i;
-      S.focus = i;
-      nodes.forEach((n, k) => n.classList.toggle('is-hot', k === i));
-      nodesWrap.classList.toggle('focused', i >= 0);
-      applyScales();
-      if (i >= 0) {
-        const theme = THEMES[SOLUTIONS[i].theme];
-        spinStroke(theme);
-        gsap.to(strokeBase, { opacity: 0.75, duration: 0.4 });
-        gsap.to(strokeFlow, { opacity: 0.95, duration: 0.4 });
-        gsap.to(focusProxy, { amt: 1, duration: 0.45, ease: 'power2.out', onUpdate: () => S.focusAmt = focusProxy.amt });
+    const wasFocused = focusIdx >= 0;
+    focusIdx = i;
+    S.focus = i;
+    nodes.forEach((n, k) => n.classList.toggle('is-hot', k === i));
+    nodesWrap.classList.toggle('focused', i >= 0);
+    applyScales();
+    gsap.killTweensOf(focusProxy);
+    if (i >= 0) {
+      const theme = THEMES[SOLUTIONS[i].theme];
+      spinStroke(theme);
+      gsap.to(strokeBase, { opacity: 0.75, duration: 0.4 });
+      gsap.to(strokeFlow, { opacity: 0.95, duration: 0.4 });
+      if (wasFocused) {
+        // Switching straight from one circle to another: pin the dim level at
+        // full instead of ramping it. Ramping (or the old crossfade-through-
+        // zero) let every other line flash back to full opacity mid-move.
+        focusProxy.amt = 1; S.focusAmt = 1;
       } else {
-        gsap.to([strokeBase, strokeFlow], { opacity: 0, duration: 0.5, onComplete: () => strokeSpin && strokeSpin.kill() });
-        gsap.to(focusProxy, { amt: 0, duration: 0.5, ease: 'power2.out', onUpdate: () => S.focusAmt = focusProxy.amt });
+        gsap.to(focusProxy, { amt: 1, duration: 0.45, ease: 'power2.out', onUpdate: () => S.focusAmt = focusProxy.amt });
       }
-    };
-    if (focusIdx >= 0 && i >= 0) {
-      // crossfade through zero so the shader focus index never pops
-      gsap.to(focusProxy, {
-        amt: 0, duration: 0.16, ease: 'power1.in',
-        onUpdate: () => S.focusAmt = focusProxy.amt, onComplete: apply,
-      });
-    } else apply();
+    } else {
+      gsap.to([strokeBase, strokeFlow], { opacity: 0, duration: 0.5, onComplete: () => strokeSpin && strokeSpin.kill() });
+      gsap.to(focusProxy, { amt: 0, duration: 0.5, ease: 'power2.out', onUpdate: () => S.focusAmt = focusProxy.amt });
+    }
   }
 
   function setOpen(i, instant) {
@@ -634,7 +649,7 @@ function init(mount) {
       const n = nodes[i];
       n.classList.add('is-open');
       n.setAttribute('aria-expanded', 'true');
-      gsap.to(n, { scale: OPEN_SCALE, opacity: 1, duration: dur, ease: 'back.out(1.5)' });
+      gsap.to(n, { scale: OPEN_SCALE, opacity: 1, duration: dur, ease: 'power3.out' });
       spinRing(n);
     } else if (ringSpin) {
       ringSpin.kill(); ringSpin = null;
@@ -669,9 +684,50 @@ function init(mount) {
 
   // Rollover: direct per-circle hover, independent of click-open (which wins
   // and holds focus while active — see setOpen).
+  let hoverClear = null;
   nodes.forEach((n, i) => {
-    n.addEventListener('mouseenter', () => { if (built && openIdx < 0) setFocus(i); });
-    n.addEventListener('mouseleave', () => { if (built && openIdx < 0) setFocus(-1); });
+    n.addEventListener('mouseenter', () => {
+      if (hoverClear) { clearTimeout(hoverClear); hoverClear = null; }
+      if (built && openIdx < 0) setFocus(i);
+    });
+    n.addEventListener('mouseleave', () => {
+      if (!built || openIdx >= 0) return;
+      if (hoverClear) clearTimeout(hoverClear);
+      // Deferred: moving between circles fires mouseleave before the next
+      // mouseenter, so clearing right away would snap every circle and line
+      // back to full size/opacity during the gap.
+      hoverClear = setTimeout(() => { hoverClear = null; setFocus(-1); }, 90);
+    });
+  });
+
+  /* --------------------------------------- Clinical AI card rollover */
+  // Hovering a card runs its shine sweep in reverse (right-to-left) and drops
+  // the other three to 35% opacity.
+  const CARD_DIM = 0.35;
+  let cardClear = null;
+
+  function setCardFocus(j) {
+    cards.forEach((c, k) => {
+      gsap.to(c, { opacity: j < 0 || k === j ? 1 : CARD_DIM, duration: 0.35, ease: 'power2.out' });
+    });
+  }
+
+  cards.forEach((c, j) => {
+    const wave = c.querySelector('.wave');
+    c.addEventListener('mouseenter', () => {
+      if (cardClear) { clearTimeout(cardClear); cardClear = null; }
+      if (!built) return;
+      setCardFocus(j);
+      gsap.fromTo(wave, { xPercent: 20 }, { xPercent: -20, duration: 0.8, ease: 'power2.inOut' });
+    });
+    c.addEventListener('mouseleave', () => {
+      if (!built) return;
+      if (cardClear) clearTimeout(cardClear);
+      // same deferred clear as the circles — the gaps between cards would
+      // otherwise flash all four back to full opacity
+      cardClear = setTimeout(() => { cardClear = null; setCardFocus(-1); }, 90);
+      gsap.to(wave, { xPercent: 0, duration: 0.5, ease: 'power2.out' });
+    });
   });
 
   /* ------------------------------------------------------- magnet physics */
@@ -739,7 +795,7 @@ function init(mount) {
     },
   });
 
-  build.to(nodes, { y: 0, scale: 1, opacity: 1, duration: 0.7, stagger: 0.09, ease: 'back.out(1.6)' }, 0);
+  build.to(nodes, { y: 0, scale: 1, opacity: 1, duration: 0.7, stagger: 0.09, ease: 'power3.out' }, 0);
   // Hover + magnet go live as soon as the circles have landed — NOT at
   // onComplete, which is ~2.8s in and left the cursor effects dead until the
   // whole box/pulse build finished.
