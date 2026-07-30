@@ -7,12 +7,16 @@
  * circle down into the Clinical AI box → box materializes as a digital
  * square build (top to bottom) → continuous data pulses flow circles → box.
  *
- * Rollover: hovering a circle scales it up 10%, scales the other circles
- * down and dims them (and their paths) to 50% opacity, and runs an animated
+ * Cursor physics: circles are magnetized toward a nearby cursor (spring), and
+ * the connection lines bend with them since each curve starts at its circle.
+ *
+ * Rollover: hovering a circle scales it up 10% and shrinks the other circles
+ * to 60% at 30% opacity (their paths dim to 30% too), plus an animated
  * gradient stroke in that circle's palette around the Clinical AI box.
- * Click a circle to expand it (shows a tagline in place of the label) —
- * that lock persists (others stay dimmed) until clicked again / Esc /
- * click-away.
+ *
+ * Click: expands the circle (tagline in place of the label), brightens it,
+ * and runs an animated gradient stroke ring around the circle itself. That
+ * lock persists (others stay dimmed) until clicked again / Esc / click-away.
  *
  * Usage (Webflow embed):
  *   <div id="sdx-solution-diagram"></div>
@@ -120,13 +124,19 @@ const CSS = `
 .sdxg-node.dark .lb,.sdxg-node.dark .tg{color:#fff}
 .sdxg-node.light .lb,.sdxg-node.light .tg{color:#051137}
 .sdxg-node .halo{position:absolute;inset:-1px;border-radius:50%;opacity:0;transition:opacity .35s ease;pointer-events:none}
+.sdxg-node .ring{position:absolute;inset:-3.4px;opacity:0;overflow:visible;pointer-events:none;
+  transition:opacity .3s ease;transform-origin:50% 50%}
 .sdxg-node.is-hot{z-index:4}
 .sdxg-node.is-hot .halo{opacity:1}
 .sdxg-node.is-open{z-index:6}
 .sdxg-node.is-open .halo{opacity:1}
+.sdxg-node.is-open .ring{opacity:1}
 @media (prefers-reduced-motion:reduce){.sdxg-node .face,.sdxg-node .expand{transition:none}}
+/* filter is class-driven: brightness on the clicked circle, desaturation on the
+   rest. Opacity + scale are GSAP-driven (inline styles beat any class rule). */
 .sdxg-nodes.focused .sdxg-node:not(.is-hot){filter:saturate(.35)}
 .sdxg-nodes .sdxg-node{filter:none;transition:filter .4s ease,box-shadow .35s ease}
+.sdxg-nodes .sdxg-node.is-open{filter:brightness(1.25)}
 
 .sdxg-box{position:absolute;left:${PAD_X}px;top:${BOX_TOP}px;width:${INNER_W}px;height:${BOX_H}px;z-index:3;
   border-radius:21.6px;padding:21.6px;display:flex;flex-direction:column;gap:14px;align-items:center;
@@ -170,6 +180,15 @@ function buildDOM(mount) {
       aria-expanded="false" aria-label="Smarter ${s.label}"
       style="left:${(centersX[i] - CIRCLE_R).toFixed(1)}px;top:${ROW_Y}px;background:${t.bg};border-color:${t.border}">
       <span class="halo" style="box-shadow:0 0 34px 4px ${t.accent}66,0 0 90px 12px ${t.accent}33"></span>
+      <svg class="ring" viewBox="0 0 100 100" fill="none" aria-hidden="true">
+        <defs>
+          <linearGradient id="sdxg-ring-${i}" gradientUnits="objectBoundingBox" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="${t.accent}"/><stop offset="1" stop-color="${t.hot}"/>
+          </linearGradient>
+        </defs>
+        <circle cx="50" cy="50" r="48.6" pathLength="100" stroke="url(#sdxg-ring-${i})"
+          stroke-width="1.7" stroke-dasharray="15 11" stroke-linecap="round"/>
+      </svg>
       <div class="face">
         <img class="ic" src="${ASSETS[s.icon]}" alt="" width="${s.iw}" height="${s.ih}" draggable="false">
         <img class="wm" src="${wm}" alt="Smarter" draggable="false">
@@ -296,10 +315,10 @@ function makeGL(canvas) {
         float reveal = 1.0 - smoothstep(prog - 0.04, prog, aT);
         float tip = exp(-pow((aT - prog) * 55.0, 2.0)) * step(0.001, prog) * (1.0 - step(0.995, prog));
         float focused = 1.0 - step(0.5, abs(aCircle - uFocus));
-        float dimf = mix(1.0, mix(0.5, 1.8, focused), uFocusAmt);
+        float dimf = mix(1.0, mix(0.3, 1.8, focused), uFocusAmt);
         float head = fract(uTime * 0.21 + aPhase);
         float g = exp(-pow((aT - head) * 15.0, 2.0)) * step(head - 0.06, prog);
-        float dimg = mix(1.0, mix(0.5, 1.7, focused), uFocusAmt);
+        float dimg = mix(1.0, mix(0.3, 1.7, focused), uFocusAmt);
         vG = (g * uPulse * 0.9 + tip * 2.2) * reveal * dimg;
         vA = (0.40 + 0.30 * g * uPulse) * reveal * dimf;
         vC = aColor;
@@ -368,6 +387,8 @@ function makeGL(canvas) {
   /* --- per-frame update --- */
   const P = { x: 0, y: 0, nx: 0, ny: 0 };
   const state = {
+    // per-circle cursor-magnet displacement, in stage px (written by physics())
+    disp: Array.from({ length: N_CIRCLES }, () => ({ x: 0, y: 0 })),
     pulse: 0, focus: -1, focusAmt: 0,
     prog: new Float32Array(N_CIRCLES),
   };
@@ -383,7 +404,8 @@ function makeGL(canvas) {
     for (let c = 0; c < N_CURVES; c++) {
       const ci = Math.floor(c / N_ENTRIES);
       const ei = c % N_ENTRIES;
-      const x0 = centersX[ci], y0 = ROW_Y + CIRCLE_D;
+      const d = state.disp[ci];
+      const x0 = centersX[ci] + d.x, y0 = ROW_Y + CIRCLE_D + d.y * 0.9;
       const x3 = entriesX[ei], y3 = BOX_TOP + 2;
       for (let s = 0; s <= SEGS; s++) {
         curvePoint(P, s / SEGS, x0, y0, x3, y3);
@@ -397,7 +419,7 @@ function makeGL(canvas) {
       curvePoint(P, ht, x0, y0, x3, y3);
       pPos[c * 3] = P.x; pPos[c * 3 + 1] = -P.y; pPos[c * 3 + 2] = 1;
       const focused = state.focus === ci ? 1 : 0;
-      const dimf = 1 + state.focusAmt * (focused ? 1.2 : -0.5);
+      const dimf = 1 + state.focusAmt * (focused ? 1.2 : -0.7);
       const drawn = ht < state.prog[ci] ? 1 : 0;
       pA[c] = 0.5 * state.pulse * drawn * dimf * Math.sin(ht * Math.PI);
     }
@@ -517,13 +539,14 @@ function init(mount) {
   new ResizeObserver(fit).observe(mount);
 
   /* ---------------------------------------------- rollover + click-expand */
-  const OPEN_SCALE = 1.34, HOVER_SCALE = 1.10, DIM_SCALE = 0.90;
+  const OPEN_SCALE = 1.34, HOVER_SCALE = 1.10;
+  const DIM_SCALE = 0.60, DIM_OPACITY = 0.30;   // non-focused circles
   let openIdx = -1;
   let built = false;
 
-  /* focus (rollover/open) state + gradient stroke + per-node scale */
+  /* focus (rollover/open) state + gradient strokes + per-node scale */
   let focusIdx = -1;
-  let strokeSpin = null;
+  let strokeSpin = null, ringSpin = null;
   const focusProxy = { amt: 0 };
 
   function spinStroke(theme) {
@@ -545,6 +568,18 @@ function init(mount) {
       }, 0);
   }
 
+  // Animated gradient stroke ring around the clicked circle.
+  function spinRing(node) {
+    if (ringSpin) ringSpin.kill();
+    const ring = node.querySelector('.ring');
+    const arc = ring.querySelector('circle');
+    gsap.set(ring, { rotate: 0 });
+    gsap.set(arc, { attr: { 'stroke-dashoffset': 0 } });
+    ringSpin = gsap.timeline()
+      .to(ring, { rotate: 360, duration: 7, ease: 'none', repeat: -1 }, 0)
+      .to(arc, { attr: { 'stroke-dashoffset': -100 }, duration: 2.2, ease: 'none', repeat: -1 }, 0);
+  }
+
   // Scale every node for the current focus/open state. The open node's own
   // scale is owned by setOpen (OPEN_SCALE), so it's skipped here.
   function applyScales() {
@@ -552,7 +587,7 @@ function init(mount) {
       if (k === openIdx) return;
       const active = k === focusIdx;
       const scale = active ? HOVER_SCALE : (focusIdx >= 0 ? DIM_SCALE : 1);
-      const opacity = active || focusIdx < 0 ? 1 : 0.5;
+      const opacity = active || focusIdx < 0 ? 1 : DIM_OPACITY;
       gsap.to(n, { scale, opacity, duration: 0.35, ease: 'power2.out' });
     });
   }
@@ -599,7 +634,10 @@ function init(mount) {
       const n = nodes[i];
       n.classList.add('is-open');
       n.setAttribute('aria-expanded', 'true');
-      gsap.to(n, { scale: OPEN_SCALE, duration: dur, ease: 'back.out(1.5)' });
+      gsap.to(n, { scale: OPEN_SCALE, opacity: 1, duration: dur, ease: 'back.out(1.5)' });
+      spinRing(n);
+    } else if (ringSpin) {
+      ringSpin.kill(); ringSpin = null;
     }
     setFocus(i);   // open circle locks focus (dim others) until closed
   }
@@ -630,11 +668,51 @@ function init(mount) {
   wireClicks(false);
 
   // Rollover: direct per-circle hover, independent of click-open (which wins
-  // and holds focus while active — see setOpen). No cursor-distance physics.
+  // and holds focus while active — see setOpen).
   nodes.forEach((n, i) => {
     n.addEventListener('mouseenter', () => { if (built && openIdx < 0) setFocus(i); });
     n.addEventListener('mouseleave', () => { if (built && openIdx < 0) setFocus(-1); });
   });
+
+  /* ------------------------------------------------------- magnet physics */
+  // Circles spring toward a nearby cursor; because each curve starts at its
+  // circle (see gl.update), the connected lines bend along with them.
+  const MAG_SIGMA = 150, MAG_K = 0.38, MAG_MAX = 26;
+  const vel = Array.from({ length: N_CIRCLES }, () => ({ x: 0, y: 0 }));
+  const pointer = { x: -9999, y: -9999, inside: false };
+
+  mount.addEventListener('pointermove', (e) => {
+    const r = stage.getBoundingClientRect();
+    const sc = r.width / STAGE_W;          // stage px, not screen px
+    pointer.x = (e.clientX - r.left) / sc;
+    pointer.y = (e.clientY - r.top) / sc;
+    pointer.inside = true;
+  });
+  mount.addEventListener('pointerleave', () => {
+    pointer.inside = false; pointer.x = pointer.y = -9999;
+  });
+
+  function physics() {
+    // Before the circles land, the build timeline owns their y — writing x/y
+    // here too would fight the pop-in tween. It takes over once built.
+    if (!built) return;
+    for (let i = 0; i < N_CIRCLES; i++) {
+      let tx = 0, ty = 0;
+      if (pointer.inside && i !== openIdx) {  // open circle holds still to read
+        const dx = pointer.x - centersX[i], dy = pointer.y - (ROW_Y + CIRCLE_R);
+        const dist = Math.hypot(dx, dy);
+        const pull = MAG_K * Math.exp(-(dist * dist) / (2 * MAG_SIGMA * MAG_SIGMA));
+        tx = dx * pull; ty = dy * pull;
+        const m = Math.hypot(tx, ty);
+        if (m > MAG_MAX) { tx *= MAG_MAX / m; ty *= MAG_MAX / m; }
+      }
+      const d = S.disp[i], vv = vel[i];
+      vv.x = (vv.x + (tx - d.x) * 0.09) * 0.80;   // damped spring
+      vv.y = (vv.y + (ty - d.y) * 0.09) * 0.80;
+      d.x += vv.x; d.y += vv.y;
+      gsap.set(nodes[i], { x: d.x, y: d.y });      // scale/opacity owned by applyScales
+    }
+  }
 
   /* -------------------------------------------------------- scroll build */
   const progProxy = Array.from({ length: N_CIRCLES }, () => ({ v: 0 }));
@@ -654,10 +732,18 @@ function init(mount) {
     },
     defaults: { ease: 'power3.out' },
     onComplete: () => { built = true; },
-    onReverseComplete: () => { built = false; setOpen(-1); },
+    onReverseComplete: () => {
+      built = false; setOpen(-1);
+      S.disp.forEach((d) => { d.x = d.y = 0; });   // drop stale magnet offsets
+      vel.forEach((v) => { v.x = v.y = 0; });
+    },
   });
 
   build.to(nodes, { y: 0, scale: 1, opacity: 1, duration: 0.7, stagger: 0.09, ease: 'back.out(1.6)' }, 0);
+  // Hover + magnet go live as soon as the circles have landed — NOT at
+  // onComplete, which is ~2.8s in and left the cursor effects dead until the
+  // whole box/pulse build finished.
+  build.call(() => { built = true; }, null, 1.24);
   progProxy.forEach((p, i) => {
     build.to(p, {
       v: 1, duration: 0.9, ease: 'power2.inOut',
@@ -680,6 +766,7 @@ function init(mount) {
   let raf = null, t0 = performance.now(), visible = true;
   function tick(now) {
     const t = (now - t0) / 1000;
+    physics();
     gl.update(t);
     raf = requestAnimationFrame(tick);
   }
@@ -697,10 +784,12 @@ function init(mount) {
   /* QA hooks — headless verification (rAF may be suspended in embedded panes) */
   window.__sdxg = {
     gsap,
-    seek(p, t = 3) { build.scrollTrigger && build.scrollTrigger.disable(false); build.pause().progress(p); gl.update(t); drawPixels(pixProxy.p); },
-    frame(t) { gl.update(t); },
+    seek(p, t = 3) { build.scrollTrigger && build.scrollTrigger.disable(false); build.pause().progress(p); physics(); gl.update(t); drawPixels(pixProxy.p); },
+    frame(t) { physics(); gl.update(t); },
     hover(i) { built = true; if (openIdx < 0) setFocus(i); },
     open(i) { built = true; setOpen(i); },
+    pointer(x, y) { built = true; pointer.x = x; pointer.y = y; pointer.inside = true; },
+    isBuilt: () => built,
     state: S,
   };
 
