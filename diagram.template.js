@@ -92,11 +92,15 @@ const ENTRY_COLORS = ['#00C8E2', '#2FA4F2', '#3A7CFF', '#6E6BFD', '#9985FF'];
 /* ------------------------------------------------------------------ css */
 
 const CSS = `
-.sdxg{position:relative;width:100%;overflow:hidden;font-family:'Manrope',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.sdxg{position:relative;width:100%;font-family:'Manrope',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
 .sdxg *{box-sizing:border-box;margin:0;padding:0}
 .sdxg-ratio{width:100%;padding-top:${(STAGE_H / STAGE_W * 100).toFixed(4)}%}
 .sdxg-stage{position:absolute;top:0;left:0;width:${STAGE_W}px;height:${STAGE_H}px;transform-origin:0 0}
-.sdxg-gl{position:absolute;inset:0;z-index:2;pointer-events:none}
+/* width/height MUST be declared: a canvas's width/height HTML attributes (set by
+   renderer.setSize for the drawing buffer) also act as CSS presentational hints,
+   which beat width:auto and would size the layout box to the buffer — leaving the
+   GL layer scaled relative to the DOM layer it has to align with. */
+.sdxg-gl{position:absolute;left:0;top:0;width:${STAGE_W}px;height:${STAGE_H}px;z-index:2;pointer-events:none}
 
 .sdxg-node{position:absolute;width:${CIRCLE_D}px;height:${CIRCLE_D}px;border-radius:50%;z-index:3;
   border:0.72px solid;will-change:transform;transition:box-shadow .35s ease;cursor:pointer;
