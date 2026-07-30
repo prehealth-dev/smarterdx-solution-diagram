@@ -7,10 +7,12 @@
  * circle down into the Clinical AI box → box materializes as a digital
  * square build (top to bottom) → continuous data pulses flow circles → box.
  *
- * Cursor physics: circles are magnetized toward a nearby cursor (spring),
- * lines follow. The nearest circle becomes "focused": other circles dim,
- * only its paths stay lit, and an animated gradient stroke in that circle's
- * palette runs around the Clinical AI box.
+ * Rollover: hovering a circle scales it up 10%, scales the other circles
+ * down and dims them (and their paths) to 50% opacity, and runs an animated
+ * gradient stroke in that circle's palette around the Clinical AI box.
+ * Click a circle to expand it (shows a tagline in place of the label) —
+ * that lock persists (others stay dimmed) until clicked again / Esc /
+ * click-away.
  *
  * Usage (Webflow embed):
  *   <div id="sdx-solution-diagram"></div>
@@ -69,9 +71,6 @@ const SOLUTIONS = [
     tagline: 'Prevent and overturn denials' },
 ];
 
-const ARROW_SVG = `<svg width="11" height="11" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <path d="M1.5 6h9M7 2.5 10.5 6 7 9.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-
 const THEMES = {
   teal:   { accent: '#00C8E2', hot: '#7FE9FF', border: '#00c8e2', dark: false,
             bg: 'linear-gradient(135deg,#d5faff 14.6%,#e0ebff 85.4%)' },
@@ -93,7 +92,7 @@ const ENTRY_COLORS = ['#00C8E2', '#2FA4F2', '#3A7CFF', '#6E6BFD', '#9985FF'];
 /* ------------------------------------------------------------------ css */
 
 const CSS = `
-.sdxg{position:relative;width:100%;font-family:'Manrope',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.sdxg{position:relative;width:100%;overflow:hidden;font-family:'Manrope',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
 .sdxg *{box-sizing:border-box;margin:0;padding:0}
 .sdxg-ratio{width:100%;padding-top:${(STAGE_H / STAGE_W * 100).toFixed(4)}%}
 .sdxg-stage{position:absolute;top:0;left:0;width:${STAGE_W}px;height:${STAGE_H}px;transform-origin:0 0}
@@ -114,25 +113,16 @@ const CSS = `
 .sdxg-node img.wm{display:block;width:38.4px;height:8.3px;margin-top:3px}
 .sdxg-node .lb{font-weight:600;font-size:11.1px;letter-spacing:-.33px;line-height:.95;text-align:center;white-space:nowrap}
 .sdxg-node .tg{font-weight:600;font-size:10.6px;line-height:1.25;letter-spacing:-.2px;text-align:center}
-.sdxg-node .go{width:25px;height:25px;border-radius:50%;border:1px solid;display:flex;align-items:center;
-  justify-content:center;flex:none;text-decoration:none;
-  transition:transform .2s ease,background-color .2s ease}
-.sdxg-node .go:hover{transform:translateX(2.5px)}
 .sdxg-node.dark .lb,.sdxg-node.dark .tg{color:#fff}
-.sdxg-node.dark .go{color:#fff;border-color:rgba(255,255,255,.65)}
-.sdxg-node.dark .go:hover{background:rgba(255,255,255,.16)}
 .sdxg-node.light .lb,.sdxg-node.light .tg{color:#051137}
-.sdxg-node.light .go{color:#051137;border-color:rgba(5,17,55,.4)}
-.sdxg-node.light .go:hover{background:rgba(5,17,55,.08)}
 .sdxg-node .halo{position:absolute;inset:-1px;border-radius:50%;opacity:0;transition:opacity .35s ease;pointer-events:none}
 .sdxg-node.is-hot{z-index:4}
 .sdxg-node.is-hot .halo{opacity:1}
 .sdxg-node.is-open{z-index:6}
 .sdxg-node.is-open .halo{opacity:1}
-@media (prefers-reduced-motion:reduce){.sdxg-node .face,.sdxg-node .expand,.sdxg-node .go{transition:none}}
-.sdxg-node.is-dim{transition:opacity .4s ease,filter .4s ease}
-.sdxg-nodes.focused .sdxg-node:not(.is-hot){opacity:.3;filter:saturate(.35)}
-.sdxg-nodes .sdxg-node{opacity:1;filter:none;transition:opacity .4s ease,filter .4s ease,box-shadow .35s ease}
+@media (prefers-reduced-motion:reduce){.sdxg-node .face,.sdxg-node .expand{transition:none}}
+.sdxg-nodes.focused .sdxg-node:not(.is-hot){filter:saturate(.35)}
+.sdxg-nodes .sdxg-node{filter:none;transition:filter .4s ease,box-shadow .35s ease}
 
 .sdxg-box{position:absolute;left:${PAD_X}px;top:${BOX_TOP}px;width:${INNER_W}px;height:${BOX_H}px;z-index:3;
   border-radius:21.6px;padding:21.6px;display:flex;flex-direction:column;gap:14px;align-items:center;
@@ -172,7 +162,6 @@ function buildDOM(mount) {
     const t = THEMES[s.theme];
     const wm = t.dark ? ASSETS['smarter-light'] : ASSETS['smarter-dark'];
     const tagline = dataset['tagline' + cap(s.key)] || s.tagline;
-    const url = dataset['url' + cap(s.key)] || '#';
     return `<div class="sdxg-node ${t.dark ? 'dark' : 'light'}" data-i="${i}" role="button" tabindex="0"
       aria-expanded="false" aria-label="Smarter ${s.label}"
       style="left:${(centersX[i] - CIRCLE_R).toFixed(1)}px;top:${ROW_Y}px;background:${t.bg};border-color:${t.border}">
@@ -185,7 +174,6 @@ function buildDOM(mount) {
       <div class="expand">
         <img class="ic" src="${ASSETS[s.icon]}" alt="" width="${s.iw}" height="${s.ih}" draggable="false">
         <span class="tg">${tagline}</span>
-        <a class="go" href="${url}" aria-label="Smarter ${s.label} — ${tagline}">${ARROW_SVG}</a>
       </div>
     </div>`;
   }).join('');
@@ -304,10 +292,10 @@ function makeGL(canvas) {
         float reveal = 1.0 - smoothstep(prog - 0.04, prog, aT);
         float tip = exp(-pow((aT - prog) * 55.0, 2.0)) * step(0.001, prog) * (1.0 - step(0.995, prog));
         float focused = 1.0 - step(0.5, abs(aCircle - uFocus));
-        float dimf = mix(1.0, mix(0.09, 1.8, focused), uFocusAmt);
+        float dimf = mix(1.0, mix(0.5, 1.8, focused), uFocusAmt);
         float head = fract(uTime * 0.21 + aPhase);
         float g = exp(-pow((aT - head) * 15.0, 2.0)) * step(head - 0.06, prog);
-        float dimg = mix(1.0, mix(0.05, 1.7, focused), uFocusAmt);
+        float dimg = mix(1.0, mix(0.5, 1.7, focused), uFocusAmt);
         vG = (g * uPulse * 0.9 + tip * 2.2) * reveal * dimg;
         vA = (0.40 + 0.30 * g * uPulse) * reveal * dimf;
         vC = aColor;
@@ -376,7 +364,6 @@ function makeGL(canvas) {
   /* --- per-frame update --- */
   const P = { x: 0, y: 0, nx: 0, ny: 0 };
   const state = {
-    disp: Array.from({ length: N_CIRCLES }, () => ({ x: 0, y: 0 })),
     pulse: 0, focus: -1, focusAmt: 0,
     prog: new Float32Array(N_CIRCLES),
   };
@@ -392,8 +379,7 @@ function makeGL(canvas) {
     for (let c = 0; c < N_CURVES; c++) {
       const ci = Math.floor(c / N_ENTRIES);
       const ei = c % N_ENTRIES;
-      const d = state.disp[ci];
-      const x0 = centersX[ci] + d.x, y0 = ROW_Y + CIRCLE_D + d.y * 0.9;
+      const x0 = centersX[ci], y0 = ROW_Y + CIRCLE_D;
       const x3 = entriesX[ei], y3 = BOX_TOP + 2;
       for (let s = 0; s <= SEGS; s++) {
         curvePoint(P, s / SEGS, x0, y0, x3, y3);
@@ -407,7 +393,7 @@ function makeGL(canvas) {
       curvePoint(P, ht, x0, y0, x3, y3);
       pPos[c * 3] = P.x; pPos[c * 3 + 1] = -P.y; pPos[c * 3 + 2] = 1;
       const focused = state.focus === ci ? 1 : 0;
-      const dimf = 1 + state.focusAmt * (focused ? 1.2 : -0.94);
+      const dimf = 1 + state.focusAmt * (focused ? 1.2 : -0.5);
       const drawn = ht < state.prog[ci] ? 1 : 0;
       pA[c] = 0.5 * state.pulse * drawn * dimf * Math.sin(ht * Math.PI);
     }
@@ -526,72 +512,12 @@ function init(mount) {
   fit();
   new ResizeObserver(fit).observe(mount);
 
-  /* ---------------------------------------------------- click expand/open */
-  const OPEN_SCALE = 1.34;
+  /* ---------------------------------------------- rollover + click-expand */
+  const OPEN_SCALE = 1.34, HOVER_SCALE = 1.10, DIM_SCALE = 0.90;
   let openIdx = -1;
-
-  function setOpen(i, instant) {
-    if (i === openIdx) return;
-    const dur = instant ? 0 : 0.45;
-    if (openIdx >= 0) {
-      const prev = nodes[openIdx];
-      prev.classList.remove('is-open');
-      prev.setAttribute('aria-expanded', 'false');
-      gsap.to(prev, { scale: 1, duration: dur, ease: 'power3.out' });
-    }
-    openIdx = i;
-    if (i >= 0) {
-      const n = nodes[i];
-      n.classList.add('is-open');
-      n.setAttribute('aria-expanded', 'true');
-      gsap.to(n, { scale: OPEN_SCALE, duration: dur, ease: 'back.out(1.5)' });
-    }
-  }
-
-  function wireClicks(instant) {
-    nodes.forEach((n, i) => {
-      n.addEventListener('click', (e) => {
-        if (e.target.closest('.go')) return;      // arrow navigates, doesn't toggle
-        setOpen(openIdx === i ? -1 : i, instant);
-      });
-      n.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(openIdx === i ? -1 : i, instant); }
-      });
-    });
-    document.addEventListener('click', (e) => {
-      if (openIdx >= 0 && !e.target.closest('.sdxg-node')) setOpen(-1, instant);
-    });
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') setOpen(-1, instant);
-    });
-  }
-
-  /* ------------------------------------------------ reduced motion: static */
-  if (reduced) {
-    S.prog.fill(1); S.pulse = 0;
-    gsap.set(box, { clipPath: 'none' });
-    gl.update(0);
-    wireClicks(true);
-    return { destroy() {} };
-  }
-  wireClicks(false);
-
-  /* ------------------------------------------------------- magnet physics */
-  const MAG_SIGMA = 150, MAG_K = 0.38, MAG_MAX = 26, FOCUS_DIST = 165;
-  const vel = Array.from({ length: N_CIRCLES }, () => ({ x: 0, y: 0 }));
-  const pointer = { x: -9999, y: -9999, inside: false };
   let built = false;
 
-  mount.addEventListener('pointermove', (e) => {
-    const r = stage.getBoundingClientRect();
-    const sc = r.width / STAGE_W;
-    pointer.x = (e.clientX - r.left) / sc;
-    pointer.y = (e.clientY - r.top) / sc;
-    pointer.inside = true;
-  });
-  mount.addEventListener('pointerleave', () => { pointer.inside = false; pointer.x = pointer.y = -9999; });
-
-  /* focus state + gradient stroke */
+  /* focus (rollover/open) state + gradient stroke + per-node scale */
   let focusIdx = -1;
   let strokeSpin = null;
   const focusProxy = { amt: 0 };
@@ -615,6 +541,18 @@ function init(mount) {
       }, 0);
   }
 
+  // Scale every node for the current focus/open state. The open node's own
+  // scale is owned by setOpen (OPEN_SCALE), so it's skipped here.
+  function applyScales() {
+    nodes.forEach((n, k) => {
+      if (k === openIdx) return;
+      const active = k === focusIdx;
+      const scale = active ? HOVER_SCALE : (focusIdx >= 0 ? DIM_SCALE : 1);
+      const opacity = active || focusIdx < 0 ? 1 : 0.5;
+      gsap.to(n, { scale, opacity, duration: 0.35, ease: 'power2.out' });
+    });
+  }
+
   function setFocus(i) {
     if (i === focusIdx) return;
     const apply = () => {
@@ -622,6 +560,7 @@ function init(mount) {
       S.focus = i;
       nodes.forEach((n, k) => n.classList.toggle('is-hot', k === i));
       nodesWrap.classList.toggle('focused', i >= 0);
+      applyScales();
       if (i >= 0) {
         const theme = THEMES[SOLUTIONS[i].theme];
         spinStroke(theme);
@@ -642,30 +581,56 @@ function init(mount) {
     } else apply();
   }
 
-  function physics() {
-    let nearest = -1, nearestD = 1e9;
-    for (let i = 0; i < N_CIRCLES; i++) {
-      const cx = centersX[i], cy = ROW_Y + CIRCLE_R;
-      const dx = pointer.x - cx, dy = pointer.y - cy;
-      const dist = Math.hypot(dx, dy);
-      if (dist < nearestD) { nearestD = dist; nearest = i; }
-      let tx = 0, ty = 0;
-      if (pointer.inside && built && i !== openIdx) {   // open circle holds still for reading
-        const pull = MAG_K * Math.exp(-(dist * dist) / (2 * MAG_SIGMA * MAG_SIGMA));
-        tx = dx * pull; ty = dy * pull;
-        const m = Math.hypot(tx, ty);
-        if (m > MAG_MAX) { tx *= MAG_MAX / m; ty *= MAG_MAX / m; }
-      }
-      const d = S.disp[i], vv = vel[i];
-      vv.x = (vv.x + (tx - d.x) * 0.09) * 0.80;
-      vv.y = (vv.y + (ty - d.y) * 0.09) * 0.80;
-      d.x += vv.x; d.y += vv.y;
-      gsap.set(nodes[i], { x: d.x, y: d.y });
+  function setOpen(i, instant) {
+    if (i === openIdx) return;
+    const dur = instant ? 0 : 0.45;
+    if (openIdx >= 0) {
+      const prev = nodes[openIdx];
+      prev.classList.remove('is-open');
+      prev.setAttribute('aria-expanded', 'false');
+      gsap.to(prev, { scale: focusIdx === openIdx ? HOVER_SCALE : 1, duration: dur, ease: 'power3.out' });
     }
-    // an open circle locks focus (dim others + gradient stroke) until closed
-    setFocus(openIdx >= 0 ? openIdx
-      : (pointer.inside && built && nearestD < FOCUS_DIST ? nearest : -1));
+    openIdx = i;
+    if (i >= 0) {
+      const n = nodes[i];
+      n.classList.add('is-open');
+      n.setAttribute('aria-expanded', 'true');
+      gsap.to(n, { scale: OPEN_SCALE, duration: dur, ease: 'back.out(1.5)' });
+    }
+    setFocus(i);   // open circle locks focus (dim others) until closed
   }
+
+  function wireClicks(instant) {
+    nodes.forEach((n, i) => {
+      n.addEventListener('click', () => setOpen(openIdx === i ? -1 : i, instant));
+      n.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(openIdx === i ? -1 : i, instant); }
+      });
+    });
+    document.addEventListener('click', (e) => {
+      if (openIdx >= 0 && !e.target.closest('.sdxg-node')) setOpen(-1, instant);
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') setOpen(-1, instant);
+    });
+  }
+
+  /* ------------------------------------------------ reduced motion: static */
+  if (reduced) {
+    S.prog.fill(1); S.pulse = 0;
+    gsap.set(box, { clipPath: 'none' });
+    gl.update(0);
+    wireClicks(true);
+    return { destroy() {} };
+  }
+  wireClicks(false);
+
+  // Rollover: direct per-circle hover, independent of click-open (which wins
+  // and holds focus while active — see setOpen). No cursor-distance physics.
+  nodes.forEach((n, i) => {
+    n.addEventListener('mouseenter', () => { if (built && openIdx < 0) setFocus(i); });
+    n.addEventListener('mouseleave', () => { if (built && openIdx < 0) setFocus(-1); });
+  });
 
   /* -------------------------------------------------------- scroll build */
   const progProxy = Array.from({ length: N_CIRCLES }, () => ({ v: 0 }));
@@ -711,7 +676,6 @@ function init(mount) {
   let raf = null, t0 = performance.now(), visible = true;
   function tick(now) {
     const t = (now - t0) / 1000;
-    physics();
     gl.update(t);
     raf = requestAnimationFrame(tick);
   }
@@ -729,10 +693,9 @@ function init(mount) {
   /* QA hooks — headless verification (rAF may be suspended in embedded panes) */
   window.__sdxg = {
     gsap,
-    seek(p, t = 3) { build.scrollTrigger && build.scrollTrigger.disable(false); build.pause().progress(p); physics(); gl.update(t); drawPixels(pixProxy.p); },
-    frame(t) { physics(); gl.update(t); },
-    focus(i) { pointer.inside = true; built = true; setFocus(i); },
-    pointer(x, y) { pointer.x = x; pointer.y = y; pointer.inside = true; },
+    seek(p, t = 3) { build.scrollTrigger && build.scrollTrigger.disable(false); build.pause().progress(p); gl.update(t); drawPixels(pixProxy.p); },
+    frame(t) { gl.update(t); },
+    hover(i) { built = true; if (openIdx < 0) setFocus(i); },
     open(i) { built = true; setOpen(i); },
     state: S,
   };
